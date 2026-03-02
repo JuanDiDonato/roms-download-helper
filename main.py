@@ -41,13 +41,13 @@ from urllib.parse import urljoin
 
 import aiohttp
 import inquirer
-from aiohttp import ClientResponse, ClientSession
+from aiohttp import ClientResponse
 from bs4 import BeautifulSoup, Tag
 
 CANCEL: str = "Cancel"
 ALL: str = "All"
 CONSOLES: list[str] = ["PlayStation 1", "PlayStation 2", "Nintendo GameCube", "Nintendo 64", "Sega Saturn"]
-CONSOLE_SOURCE_MAP: dict[str, str] = {
+CONSOLE_SOURCE_MAP: dict[str, str] = {  # TODO: Update sources
     "PlayStation 1": "https://myrient.erista.me/files/Internet%20Archive/chadmaster/chd_psx_eur/CHD-PSX-EUR/",
     "Nintendo GameCube": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
     "PlayStation 2": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%202/",
@@ -155,12 +155,12 @@ def filter_roms(config: Config, url: str, soup: BeautifulSoup) -> dict[str, str]
 async def main():
     config: Config = request_config()
     if config.console:
-        client: ClientSession = ClientSession(connector=aiohttp.TCPConnector(limit=50))
         try:
             # Gets page's HTML
             url: str = CONSOLE_SOURCE_MAP[config.console]
-            response: ClientResponse = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            soup: BeautifulSoup = BeautifulSoup(await response.text(), 'html.parser')
+            async with aiohttp.ClientSession() as session:
+                response: ClientResponse = await session.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                soup: BeautifulSoup = BeautifulSoup(await response.text(), 'html.parser')
 
             # Find and filter urls
             scrapper_results: dict[str, str] = filter_roms(config, url, soup)
@@ -215,7 +215,5 @@ async def main():
         except Exception as e:
             print(f"Unhandled error: {e}")
             raise e
-        finally:
-            await client.close()
 
 asyncio.run(main())
