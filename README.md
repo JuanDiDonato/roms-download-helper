@@ -1,4 +1,4 @@
-# Roms Download Manager
+# Roms Download Helper
 
 Un script en Python que busca, filtra y descarga múltiples archivos ROM en paralelo usando `aria2c`.
 
