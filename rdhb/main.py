@@ -1,0 +1,106 @@
+import argparse
+import asyncio
+import sys
+from asyncio.subprocess import Process
+from typing import Optional
+from urllib.parse import unquote
+from urllib.parse import urljoin
+
+import aiohttp
+from aiohttp import ClientResponse
+from bs4 import BeautifulSoup, Tag
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--console", help="Console name from allowed console's list", required=True)
+parser.add_argument("--name", help="Game name filter", nargs="*", required=False)
+parser.add_argument("--exclude", help="Keywords to exclude", nargs="*", required=False)
+parser.add_argument("--language", help="Language's keyword", nargs="*", required=False)
+args = parser.parse_args()
+
+CONSOLE_SOURCE_MAP: dict[str, str] = {  # TODO: Update sources
+    "psx": "https://myrient.erista.me/files/Internet%20Archive/chadmaster/chd_psx_eur/CHD-PSX-EUR/",
+    "gamecube": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
+    "ps2": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%202/",
+    "saturn": "https://myrient.erista.me/files/Internet%20Archive/chadmaster/chd_saturn/CHD-Saturn/Europe/",
+    "n64": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20(ByteSwapped)/"
+}
+
+async def download(urls: list[str]) -> None:
+    try:
+        cmd: list[str] = ["aria2c", "-x", "4", "-s", "4", "--summary-interval=2",
+                          "--console-log-level=warn"] + urls
+
+        process: Process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        async for line in process.stdout:
+            sys.stdout.write("\r" + " " * len(line.decode().strip()) + "\r")
+            print(line.decode().strip(), flush=True)
+
+        await process.wait()
+
+        if process.returncode == 0:
+            print("Download successfully")
+        else:
+            print(f"Download fail: {process.stderr}")
+    finally:
+        sys.stdout.write("\r" + " " * 30 + "\r")
+        sys.stdout.flush()
+
+
+def filter_roms(url: str, soup: BeautifulSoup) -> dict[str, str]:
+    filter_results: dict[str, str] = {}
+    for row in soup.find_all('tr'):
+        link: Optional[Tag] = row.find('a')
+        if link and link.get('href'):
+            filename: str = link.get('href')
+            unquoted_filename: str = unquote(filename)
+            unquoted_filename_lower: str = unquoted_filename.lower()
+
+            # Build filters
+            has_language: bool = any(
+                term in unquoted_filename for term in args.language) if args.language else True
+            has_excluded: bool = any(
+                term in unquoted_filename_lower for term in args.exclude) if args.exclude else False
+            has_name: bool = " ".join([n.lower() for n in args.name]) in unquoted_filename_lower if args.name else True
+
+            if has_language and has_name and not has_excluded:
+                full_url: str = urljoin(url, filename)
+                filter_results[unquoted_filename] = full_url
+    return filter_results
+
+
+async def main():
+    if args.console:
+        try:
+            # Gets page's HTML
+            url: str = CONSOLE_SOURCE_MAP[args.console]
+            async with aiohttp.ClientSession() as session:
+                response: ClientResponse = await session.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                soup: BeautifulSoup = BeautifulSoup(await response.text(), 'html.parser')
+
+            # Find and filter urls
+            scrapper_results: dict[str, str] = filter_roms(url, soup)
+
+            if scrapper_results:
+                print(f"You will download: \n")
+                for rom in scrapper_results.keys():
+                    print(" - " + rom)
+
+                download_confirm: bool = (input("\n Start download? N/y: ") == "y")
+                if download_confirm:
+                    await download(urls=list(scrapper_results.values()))  # Uses 'aria2c' to make all downloads
+                else:
+                    print("Download cancel")
+        except KeyError:
+            print(f"Invalid console name: {args.console}")
+        except Exception as e:
+            print(f"Unhandled error: {e}")
+            raise e
+        print("Script end")
+
+def init():
+    asyncio.run(main())
