@@ -25,7 +25,17 @@ CONSOLE_SOURCE_MAP: dict[str, str] = {  # TODO: Update sources
     "n64": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20(ByteSwapped)/"
 }
 
+async def show_loader() -> None:
+    chars: str = "/-\\|"
+    i: int = 0
+    while True:
+        sys.stdout.write(f"\rDownloading... {chars[i % len(chars)]}")
+        sys.stdout.flush()
+        i += 1
+        await asyncio.sleep(0.1)
+
 async def download(urls: list[str]) -> None:
+    loader_task = asyncio.create_task(show_loader())
     try:
         cmd: list[str] = ["aria2c", "-x", "4", "-s", "4", "--summary-interval=2",
                           "--console-log-level=warn"] + urls
@@ -36,20 +46,19 @@ async def download(urls: list[str]) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        async for line in process.stdout:
-            sys.stdout.write("\r" + " " * len(line.decode().strip()) + "\r")
-            print(line.decode().strip(), flush=True)
+        stdout, stderr = await process.communicate()
 
-        await process.wait()
+        if stdout:
+            print(stdout.decode().strip(), flush=True)
 
         if process.returncode == 0:
             print("Download successfully")
         else:
-            print(f"Download fail: {process.stderr}")
+            print(f"Download fail: {stderr.decode().strip()}")
     finally:
+        loader_task.cancel()
         sys.stdout.write("\r" + " " * 30 + "\r")
         sys.stdout.flush()
-
 
 def filter_roms(url: str, soup: BeautifulSoup) -> dict[str, str]:
     filter_results: dict[str, str] = {}
